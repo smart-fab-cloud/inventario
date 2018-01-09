@@ -1,5 +1,6 @@
 package ifts.inventario;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,8 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriBuilder;
 
 @Path("/inventario")
 @Produces(MediaType.APPLICATION_JSON)
@@ -28,11 +31,35 @@ public class Inventario {
     }
     
     @POST
-    public void aggiungiProdotto(
-        @QueryParam("codice") String codice,
+    public Response aggiungiProdotto(
+        @QueryParam("codice") Optional<String> codice,
         @QueryParam("descrizione") Optional<String> descrizione,
         @QueryParam("quant") Optional<Integer> quant
     ) {
+        // Se non è specificato alcun codice
+        if(!codice.isPresent())
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Il parametro codice non può essere omesso.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        
+        // Se codice è specificato come vuoto
+        if(codice.get().isEmpty())
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Il parametro codice non può essere vuoto.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        
+        // Se il codice è già presente 
+        if(indiceProdotto(codice.get()) > -1)
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.CONFLICT)
+                    .entity(codice + " già inserito.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+
         // Inserisce in "d" la descrizione passata come parametro (se c'è)
         // altrimenti lascia quella di default
         String d = descrizioneDefault;
@@ -46,8 +73,14 @@ public class Inventario {
         
         // Crea un nuovo prodotto e lo inserisce nella collezione di
         // prodotti memorizzati
-        Prodotto p = new Prodotto(codice,d,q);
+        Prodotto p = new Prodotto(codice.get(),d,q);
         this.prodotti.add(p);
+        
+        // Restituisce "201 Created", con la URI del nuovo prodotto inserito
+         URI pUri = UriBuilder.fromResource(Inventario.class)
+                        .path(p.getCodice())
+                        .build();
+        return Response.created(pUri).build();
     }
     
     // Metodo privato utilizzato per cercare l'indice del prodotto
@@ -62,47 +95,79 @@ public class Inventario {
     
     @GET
     @Path("/{codice}")
-    public Prodotto recuperaProdotto(@PathParam("codice") String codice) {
+    public Response recuperaProdotto(@PathParam("codice") String codice) {
         // Cerca l'indice "i" del prodotto con codice "codice"
         int i = indiceProdotto(codice);
-        // Restituisce il prodotto desiderato (se presente)
-        // altrimenti restituisce null
-        if (i>=0)
-            return prodotti.get(i);
-        return null;
+        
+        // Se il prodotto non è presente
+        if(i == -1)
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(codice + " non trovato.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        
+        // Altrimenti, restituisce il prodotto desiderato
+        return Response.ok(prodotti.get(i)).build();
     }
     
     @PUT
     @Path("/{codice}")
-    public void aggiornaProdotto(
+    public Response aggiornaProdotto(
         @PathParam("codice") String codice,
         @QueryParam("descrizione") Optional<String> descrizione,
-        @QueryParam("quant") int quant
+        @QueryParam("quant") Optional<Integer> quant
     ) {
-        // Cerca l'indice "i" del prodotto con codice "codice"
+        // Se "quant" non è presente 
+        if(!quant.isPresent())
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("'quant' non può essere omesso.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+
+        
+        // Se il prodotto non è presente
         int i = indiceProdotto(codice);
-        // Se tale prodotto è presente
-        if (i>=0) {
-            // Recupera la vecchia descrizione del prodotto (in posizione "i")
-            // e la aggiorna con le nuove informazioni
-            Prodotto vecchio = this.prodotti.get(i);
-            String d = vecchio.getDescrizione();
-            if(descrizione.isPresent())
-                d = descrizione.get();
-            Prodotto nuovo = new Prodotto(codice,d,quant);
-            // Rimuove la vecchia descrizione del prodotto (in posizione "i")
-            // e re-inserisce quella aggiornata
-            this.prodotti.remove(i);
-            this.prodotti.add(nuovo);
-        }
+        if (i == -1)
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(codice + " non trovato.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        
+        // Altrimenti, aggiorna il prodotto
+        Prodotto vecchio = this.prodotti.get(i);
+        String d = vecchio.getDescrizione();
+        if(descrizione.isPresent()) d = descrizione.get();
+        Prodotto nuovo = new Prodotto(codice,d,quant.get());
+        this.prodotti.remove(i);
+        this.prodotti.add(nuovo);
+        // e restituisce 200 OK
+        return Response.ok()
+                .entity(nuovo)
+                .type(MediaType.APPLICATION_JSON)
+                .build();
+        
     }
     
     @DELETE
     @Path("/{codice}")
-    public void eliminaProdotto(@PathParam("codice") String codice) {
-        // Cerca l'indice "i" del prodotto con codice "codice"
+    public Response eliminaProdotto(@PathParam("codice") String codice) {
+        // Se il prodotto non è presente
         int i = indiceProdotto(codice);
-        // Elimina il prodotto dalla collezione di "prodotti"
+        if (i == -1)
+            // Restituisce un opportuno messaggio di errore
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(codice + " non trovato.")
+                    .type(MediaType.TEXT_PLAIN)
+                    .build();
+        
+        // Altrimenti, elimina il prodotto e restituisce 200 OK
         this.prodotti.remove(i);
+        return Response.ok()
+                .entity(codice + " eliminato.")
+                .type(MediaType.TEXT_PLAIN)
+                .build();
     }
 }
